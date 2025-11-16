@@ -5,8 +5,8 @@ This repository serves as a guide for building efficient ROS2 nodes, primarily i
 ## Table of Contents
 
 1. [Introduction to ROS2 Nodes](#introduction-to-ros2-nodes)
-2. [Language Choice: C++](#language-choice-c)
-3. [Project Structure: Separating Functionality from ROS Wrapper](#project-structure-separating-functionality-from-ros-wrapper)
+2. [Shortly on: C++](#language-choice-c)
+3. [Project Structure:](#project-structure-separating-functionality-from-ros-wrapper)
 4. [Building with Colcon](#building-with-colcon)
 5. [Symlink-Install for Development](#symlink-install-for-development)
 6. [Launch Files and Configuration](#launch-files-and-configuration)
@@ -15,8 +15,6 @@ This repository serves as a guide for building efficient ROS2 nodes, primarily i
 9. [Examples](#examples)
 
 ## Introduction to ROS2 Nodes
-
-ROS2 nodes are the fundamental building blocks of ROS2 applications. They communicate via topics, services, and actions.
 
 Key concepts:
 - Publishers/Subscribers for data streaming
@@ -27,17 +25,14 @@ Key concepts:
 
 ## Language Choice: C++
 
-C++ is preferred for ROS2 development due to:
-- Performance: Low latency, high throughput
-- Control: Fine-grained memory and thread management
-- Integration: Direct access to hardware and system resources
-- Maturity: Extensive libraries and tools
+C++ is most used because of:
+- In General: High Performance: Low latency, high throughput
+- Control: Direct memory and thread control
+- Maturity: Extensive libraries and tools and rclcpp, rust is still imature
 
-ROS2 provides rclcpp for C++ node development.
+## Project Structure: Strive to separate core Functionality from ROS Wrapper
 
-## Project Structure: Separating Functionality from ROS Wrapper
-
-Good practice: Separate core logic from ROS-specific code.
+Almost a must practice: Separate core logic from ROS-specific code.
 
 ```
 include/my_package/
@@ -50,9 +45,9 @@ src/
 ```
 
 This allows:
-- Easier testing of core logic
+- Isolated testing of core logic, your driver should first work without ROS, the tests should be written for core logic only also.
 - Portability to other frameworks
-- Cleaner code organization
+- Cleaner code organization, easier maintanance
 
 ## Building with Colcon
 
@@ -66,53 +61,31 @@ Colcon:
 3. Handles dependencies automatically
 4. Supports multiple build types (Debug, Release)
 
-### Workspace Management with vcstool
-
-For large projects, use vcstool to manage multiple repositories in a single workspace:
+### Workspace Management
 
 ```bash
 # Initialize workspace
 mkdir -p colcon_ws/src
 cd colcon_ws
 
-# Create .repos file
-cat > src/my_project.repos << EOF
-repositories:
-  my_package:
-    type: git
-    url: https://github.com/user/my_package.git
-    version: main
-  dependencies:
-    type: git
-    url: https://github.com/user/dependencies.git
-    version: v1.0
-EOF
-
-# Import repositories
-vcs import src < src/my_project.repos
-
-# Export current state (for reproducibility)
-vcs export src > src/my_project.repos
 ```
 
 ### Basic Usage
 
 ```bash
-# Build all packages
+# Build all packages in that workspace
 colcon build
 
 # Build specific package
 colcon build --packages-select my_package
 
-# Build with symlink-install (recommended for development)
 colcon build --symlink-install
 
 # Build with merged install (for large workspaces)
 colcon build --merge-install --symlink-install
 
-# Clean build
+# Every once in a while during development clean the workspace a bit
 rm -rf build/ install/ log/
-colcon build
 ```
 
 ### Package Structure
@@ -122,7 +95,7 @@ Each ROS2 package needs:
 - `CMakeLists.txt`: Build configuration
 - Source files
 
-### Common Pitfalls
+### The don'ts 
 
 - **Multiple workspaces**: Avoid having separate workspaces that aren't properly overlaid
 - **Nested monorepos**: Don't nest repositories inside src/ subdirectories
@@ -133,8 +106,8 @@ Each ROS2 package needs:
 
 Symlink-install creates symbolic links instead of copying files, enabling:
 - Faster rebuilds
-- Live editing without rebuild
-- Better debugging experience
+- Direct sourcing of Config files
+- Python changes without rebuild
 
 Use during development:
 ```bash
@@ -143,11 +116,9 @@ colcon build --symlink-install
 
 ## Launch Files and Configuration
 
-Launch files orchestrate multiple nodes and set parameters.
+### Python Launch Files named node_name.launch.py
 
-### Python Launch Files (Recommended)
-
-Python launch files are most powerful and flexible:
+Python launch files are most standard and easy:
 
 ```python
 import os
@@ -424,7 +395,7 @@ For web-based UIs, prefer standard solutions:
 - **rosbridge_server**: Standard ROS2-web bridge
 - **foxglove_bridge**: High-performance alternative
 
-Avoid custom C++ web servers - use established bridges instead.
+Avoid custom web servers - use established bridges instead.
 
 ### Hardware Drivers and Permissions
 
