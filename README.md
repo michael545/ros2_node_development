@@ -320,7 +320,7 @@ When migrating from ROS1:
   - Provide small nodes/functions that convert between your custom schema and standard messages to keep tooling compatibility
 
 - **QoS awareness:**
-  - Align message size/frequency with QoS: reliability, history depth, and deadlines. Large messages plus reliable QoS can stall low-bandwidth links
+  - Align message size/frequency with QoS: reliability, history depth, and deadlines. Large messages plus reliable QoS can stall low-bandwidth links, allign QoS on both the publisher and the subscriber side
 
 **Common pitfalls to avoid**
 
