@@ -1,0 +1,5 @@
+parameter_node:
+  ros__parameters:
+    publish_rate: 2.0
+    message: "Hello from parameters example"
+    enable_logging: true

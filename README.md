@@ -1,6 +1,6 @@
 # ROS2 Node Development Guide
 
-This repository serves as a guide for building efficient ROS2 nodes, primarily in C++ with rclcpp. It goes over best practices, project structure, building, deployment, and more learnt during working with a ros2 system.
+This repository serves as a guide for building efficient ROS2 nodes, primarily in C++ with rclcpp. It covers over best practices, project structure, building, deployment, and more learnt during working with a ros2 system.
 
 ## Table of Contents
 
@@ -32,7 +32,7 @@ C++ is most used because of:
 
 ## Project Structure: Strive to separate core Functionality from ROS Wrapper
 
-Almost a must practice: Separate core logic from ROS-specific code.
+A must practice: Separate core logic from ROS-specific code.
 
 ```
 include/my_package/
@@ -45,15 +45,13 @@ src/
 ```
 
 This allows:
-- Isolated testing of core logic, your driver should first work without ROS, the tests should be written for core logic only also.
+- Isolated testing of core logic, your driver or hardware interface should always first work without ROS, the tests should be written for core logic only also.
 - Portability to other frameworks
 - Cleaner code organization, easier maintanance
 
 ## Building with Colcon
 
-Colcon is ROS2's build tool, based on CMake.
-
-### How Colcon Works
+### How it  Works
 
 Colcon:
 1. Discovers packages in workspace
@@ -74,7 +72,7 @@ cd colcon_ws
 
 ```bash
 # Build all packages in that workspace
-colcon build
+colcon build 
 
 # Build specific package
 colcon build --packages-select my_package

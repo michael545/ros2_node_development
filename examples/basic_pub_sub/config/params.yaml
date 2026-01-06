@@ -1,0 +1,9 @@
+talker_node:
+  ros__parameters:
+    publish_rate: 2.0  # Hz
+    base_message: "ROS2 Message"
+
+listener_node:
+  ros__parameters:
+    log_level: "INFO"
+    filter_duplicates: false
