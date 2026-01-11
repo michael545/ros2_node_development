@@ -1,0 +1,26 @@
+/**:
+  ros__parameters:
+    # Frame confguration
+    global_frame_id: "map"
+    odom_frame_id: "odom"
+    base_frame_id: "base_link"
+
+    # IO topics
+    gnss_topic: "/gnss/fix"
+    imu_topic: "/gnss/imu"
+    origin_fix_topic: "/gnss/origin_fix"
+
+    # Initial pose
+    initial_pos_x: 0.0
+    initial_pos_y: 0.0
+    initial_pos_a: 0.0
+    yaw_offset: -2.35619449019 # pi/2 (THIS IS add if IMU North=0, bur ENU for ROS-East=0)
+
+    # Behaviour tuning
+    transform_tolerance: 0.1
+    min_fix_status: 0
+    gnss_min_var: 0.025
+    smoothing_factor: 0.1
+    use_kalman_filter: false
+    process_noise_pos: 0.05
+    process_noise_yaw: 0.05

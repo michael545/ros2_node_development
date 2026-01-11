@@ -1,0 +1,16 @@
+build/
+install/
+log/
+fix_to_pose_with_origin.py
+
+*.so
+*.a
+*.o
+*.out
+
+.vscode/
+*~
+
+*.pyc
+__pycache__/
+Personal_notes.txt
