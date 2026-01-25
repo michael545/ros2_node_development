@@ -1,14 +1,14 @@
 # ROS2 Node Development Guide
 
-This repository serves as a guide for building efficient ROS2 nodes, primarily in C++ with rclcpp. It covers over best practices, project structure, building, deployment, and more learnt during working with a ros2 system.
+This repository serves as a guide for building lean, efficient, scalable, orthogonal, testable and maintainable ROS2 software, primarily in C++ with rclcpp. It covers best practices, project structure, building, deployment, and more learnt during working with complex a ros2 roboty system architecture.
 
 ## Table of Contents
 
 1. [Introduction to ROS2 Nodes](#introduction-to-ros2-nodes)
-2. [Shortly on: C++](#language-choice-c)
+2. [Language Choice Strategy](#language-choice-strategy)
 3. [Project Structure:](#project-structure-separating-functionality-from-ros-wrapper)
 4. [Building with Colcon](#building-with-colcon)
-5. [Symlink-Install for Development](#symlink-install-for-development)
+5. [Tip: Symlink-Install for Development](#symlink-install-for-development)
 6. [Launch Files and Configuration](#launch-files-and-configuration)
 7. [Managing External Dependencies](#managing-external-dependencies)
 8. [Best Practices for Efficient Nodes](#best-practices-for-efficient-nodes)
@@ -20,15 +20,17 @@ Key concepts:
 - Publishers/Subscribers for data streaming
 - Services for request-response
 - Actions for long-running tasks
-- Parameters for configuration
-- Lifecycle management
+- Parameters for configurations
+- Lifecycle management for
 
-## Language Choice: C++
+## Language Choice Strategy
 
-C++ is most used because of:
-- In General: High Performance: Low latency, high throughput
-- Control: Direct memory and thread control
-- Maturity: Extensive libraries and tools and rclcpp, rust is still imature
+For a deeper dive into selecting the right language (C++, Python, or Rust) for your specific use case, along with architectural implications and consistency guides, please consult the **[Detailed Language Choice Guide](on_languages/README.md)**.
+
+**Quick Summary:**
+- **C++**: Best for real-time control, high performance, and maturity.
+- **Python**: Ideal for high-level coordination, scripting, and rapid iteration.
+- **Rust**: Emerging choice for safety-critical components.
 
 ## Project Structure: Strive to separate core Functionality from ROS Wrapper
 
@@ -67,7 +69,6 @@ mkdir -p colcon_ws/src
 cd colcon_ws
 
 ```
-
 ### Basic Usage
 
 ```bash
@@ -95,7 +96,7 @@ Each ROS2 package needs:
 
 ### The don'ts 
 
-- **Multiple workspaces**: Avoid having separate workspaces that aren't properly overlaid
+- **Multiple workspaces**: Avoid having separate workspaces that aren't properly overlaid, use one ros2_ws
 - **Nested monorepos**: Don't nest repositories inside src/ subdirectories
 - **Missing dependencies**: Always run `rosdep install --from-paths src --ignore-src -r -y` before building
 - **Build order issues**: Ensure all dependencies are explicitly declared in package.xml
@@ -142,7 +143,7 @@ def generate_launch_description():
 
 ### YAML Configuration
 
-Store configurations in package's config/ directory:
+Store configurations in package's config/ directory, avoid magic numbers in your code or weird arguments your launch files:
 
 ```yaml
 my_node:

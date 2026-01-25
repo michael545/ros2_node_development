@@ -46,12 +46,6 @@ install(TARGETS imu_gnss_tracker_ros
   DESTINATION lib/${PROJECT_NAME}
 )
 
-# Install helper scripts
-install(PROGRAMS
-  scripts/gnss_spoofer.py
-  DESTINATION lib/${PROJECT_NAME}
-)
-
 # Install launch and param files
 install(DIRECTORY launch
   DESTINATION share/${PROJECT_NAME}

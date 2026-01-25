@@ -1,10 +1,5 @@
-# ADR 0002: Real-Time Architecture for ROS2 Robotics Systems
-
-## Status
-**Accepted** ✅
-
+# Real-Time Architecture for ROS2 Robotics Systems
 ## Context
-
 As we develop professional ROS2 applications for robotics, we need to address real-time requirements that are common in:
 
 1. **Motor control loops** (1kHz+ update rates)
