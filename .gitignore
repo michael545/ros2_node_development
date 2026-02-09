@@ -14,6 +14,7 @@ log/
 .DS_Store
 Thumbs.db
 
+/ezmap
 # Temporary files
 *.tmp
 *.bak
