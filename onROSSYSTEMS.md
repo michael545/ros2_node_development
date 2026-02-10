@@ -107,3 +107,294 @@ src/
 *   **Composable**: You can launch `ezmap_core` + `ezmap_touch_ui` for a standalone robot.
 *   **Testable**: You can test `ezmap_core` without any UI running.
 *   **Clean**: No more "Why is the TF broadcaster inside the Map Screen?" confusion.
+
+---
+
+## 4. Dependency Management
+
+Managing dependencies across distributed ROS 2 system is critical for reproducibility, deployment, and avoiding "it works on my machine" derangements syndrome. Dependencies span multiple layers: **System-level**, **ROS-level**, and **Language-specific** (Python, C++, Rust).
+
+### 4.1 System-Level Dependencies (apt/dnf/pacman)
+
+These are OS packages installed you get via Apt or snap.
+
+**Examples:**
+- `libgmock-dev`, `libopencv-dev`, `libeigen3-dev` (C++ libraries)
+- `python3-numpy`, `python3-scipy` (Python system packages)
+- `ros-jazzy-desktop`, `ros-jazzy-navigation2` (ROS 2 metapackages)
+
+**Best Management Strategy:**
+
+**Using `rosdep`:**
+```bash
+# Install all dependencies declared in package.xml files
+rosdep install --from-paths src --ignore-src -r -y
+```
+
+`rosdep` reads the `<depend>` tags in `package.xml` and maps them to system packages using `rosdep` rules.
+
+**Example `package.xml`:**
+```xml
+<depend>rclcpp</depend>
+<depend>sensor_msgs</depend>
+<depend>opencv</depend>           <!-- Mapped to libopencv-dev -->
+<depend>libgmock-dev</depend>     <!-- System package -->
+```
+
+**Best Practices:**
+- **Always run `rosdep update` before install** to sync the latest package mappings.
+- **Declare ALL system dependencies explicitly** in `package.xml`, even if they're installed. This ensures reproducibility on new systems.
+- **Use Docker for complete isolation**: System dependencies are baked into the container image, ensuring identical environments across dev/CI/production.
+
+**Pitfall:** Installing system packages manually (`sudo apt install libfoo-dev`) bypasses `rosdep` tracking. Other developers won't know about this dependency.
+
+---
+
+### 4.2 ROS-Level Dependencies (Other ROS Packages)
+
+These are other ROS 2 packages your package depends on.
+
+**Declaration in `package.xml`:**
+```xml
+<depend>nav2_msgs</depend>
+<depend>tf2_ros</depend>
+<build_depend>rosidl_default_generators</build_depend>
+<exec_depend>robot_localization</exec_depend>
+```
+
+**Dependency Types:**
+- `<depend>`: Required for both build and runtime.
+- `<build_depend>`: Only needed during compilation (e.g., message generators).
+- `<exec_depend>`: Only needed at runtime (e.g., a Python script you call).
+- `<test_depend>`: Only for tests (e.g., `launch_testing`).
+
+**Management Strategy:**
+
+**For Source Builds (Workspace Development):**
+Use `vcstool` to pull all repositories into your workspace:
+
+```bash
+# Create a .repos file
+cat > my_robot.repos << EOF
+repositories:
+  navigation2:
+    type: git
+    url: https://github.com/ros-planning/navigation2.git
+    version: jazzy
+  robot_localization:
+    type: git
+    url: https://github.com/cra-ros-pkg/robot_localization.git
+    version: jazzy
+EOF
+
+# Import into workspace
+vcs import src < my_robot.repos
+```
+
+**For Binary Dependencies:**
+If the dependency is released, install via apt:
+```bash
+sudo apt install ros-jazzy-nav2-msgs ros-jazzy-robot-localization
+```
+
+**Best Practices:**
+- **Pin versions in `.repos` files** using commit hashes for reproducibility.
+- **Minimize custom dependencies**: Prefer released ROS packages over forked/custom versions.
+- **Use `colcon graph`** to visualize dependency chains and detect circular dependencies.
+
+---
+
+### 4.3 Python-Specific Dependencies
+
+Python nodes may depend on packages not available via `rosdep` (e.g., ML libraries, web frameworks).
+
+**Declaration Strategies:**
+
+**Option 1: `package.xml` (Preferred for ROS Integration)**
+```xml
+<exec_depend>python3-requests</exec_depend>
+<exec_depend>python3-flask</exec_depend>
+```
+
+If the package is available in the system repositories, `rosdep` will install it.
+
+**Option 2: `requirements.txt` (For pip-only packages)**
+```text
+# requirements.txt
+torch==2.0.0
+fastapi==0.95.0
+uvicorn[standard]
+```
+
+Install manually:
+```bash
+pip3 install -r requirements.txt
+```
+
+**Option 3: `setup.py` (For ament_python packages)**
+```python
+setup(
+    name='my_package',
+    version='0.0.1',
+    packages=find_packages(),
+    install_requires=[
+        'numpy',
+        'scipy',
+        'opencv-python',
+    ],
+)
+```
+
+When you `colcon build` or `pip install .`, these dependencies are installed automatically.
+
+**Best Practices:**
+- **Prefer system packages** (`python3-opencv`) over pip (`opencv-python`) for stability.
+- **Use virtual environments** (`venv`) or `pipx` to isolate dependencies during development.
+- **For deployment**, bake dependencies into Docker images or use `requirements.txt` with locked versions.
+
+**Pitfall:** The Python Global Interpreter Lock (GIL) means pip-installed native extensions (e.g., PyTorch) can conflict with system packages. Use `--user` or virtual environments to avoid polluting the system Python.
+
+---
+
+### 4.4 C++ Dependencies (CMake/pkg-config)
+
+C++ packages depend on external libraries (Eigen, OpenCV, Boost, etc.).
+
+**Declaration in `CMakeLists.txt`:**
+```cmake
+find_package(ament_cmake REQUIRED)
+find_package(rclcpp REQUIRED)
+find_package(OpenCV REQUIRED)
+find_package(Eigen3 REQUIRED)
+find_package(PCL REQUIRED)
+
+target_include_directories(my_node PUBLIC
+  ${OpenCV_INCLUDE_DIRS}
+  ${EIGEN3_INCLUDE_DIRS}
+  ${PCL_INCLUDE_DIRS}
+)
+
+target_link_libraries(my_node
+  ${OpenCV_LIBRARIES}
+  ${PCL_LIBRARIES}
+)
+```
+
+**And in `package.xml`:**
+```xml
+<depend>libopencv-dev</depend>
+<depend>libeigen3-dev</depend>
+<depend>libpcl-dev</depend>
+```
+
+**Management Strategy:**
+
+**System Libraries:**
+- Install via `apt`: `sudo apt install libopencv-dev libeigen3-dev`.
+- Let `rosdep` handle it: Declare in `package.xml`, run `rosdep install`.
+
+**Vendored/Custom Libraries:**
+If you need a specific version or a library not in apt:
+1. **Git Submodules**: Include the library as a submodule in your repo.
+   ```bash
+   git submodule add https://github.com/fmtlib/fmt.git external/fmt
+   ```
+2. **ExternalProject_Add**: Download and build during CMake configuration.
+   ```cmake
+   include(ExternalProject)
+   ExternalProject_Add(fmt
+     GIT_REPOSITORY https://github.com/fmtlib/fmt.git
+     GIT_TAG 9.1.0
+     CMAKE_ARGS -DCMAKE_INSTALL_PREFIX=<INSTALL_DIR>
+   )
+   ```
+
+**Best Practices:**
+- **Avoid vendoring unless necessary**: System packages are tested and patched by distro maintainers.
+- **Document custom build steps** in README.md.
+- **Use `ccache`** to speed up rebuilds when dependencies change.
+
+**Pitfall:** CMake's `find_package` searches in system paths. If you have multiple versions of OpenCV installed (system + conda), CMake may pick the wrong one. Use `CMAKE_PREFIX_PATH` to force the correct location.
+
+---
+
+### 4.5 Rust Dependencies (Cargo)
+
+Rust packages (using `rclrs`) depend on crates from crates.io.
+
+**Declaration in `Cargo.toml`:**
+```toml
+[dependencies]
+rclrs = "0.4"
+sensor_msgs = { version = "0.1", package = "sensor-msgs-rs" }
+tokio = { version = "1", features = ["full"] }
+serde = { version = "1.0", features = ["derive"] }
+```
+
+**Management Strategy:**
+
+**Lock File (`Cargo.lock`):**
+- Cargo automatically generates `Cargo.lock` to pin exact versions of all transitive dependencies.
+- **Commit `Cargo.lock`** to version control for reproducible builds.
+
+**Integration with Colcon:**
+Use the `colcon-cargo` extension to build Rust packages in ROS 2 workspaces.
+
+```bash
+# Install colcon-cargo
+pip3 install colcon-cargo
+
+# Build Rust package
+colcon build --packages-select my_rust_package
+```
+
+**Best Practices:**
+- **Use semantic versioning** (`^1.0` means `>=1.0.0, <2.0.0`).
+- **Audit dependencies** with `cargo audit` to detect security vulnerabilities.
+- **Minimize dependencies**: Each crate increases build time. Rust's monomorphization can lead to long compile times.
+
+**Pitfall:** ROS message bindings for Rust (`rosidl_generator_rs`) are generated at build time. If you change a `.msg` file, you must rebuild the Rust package. Use `cargo clean` if you encounter stale bindings.
+
+---
+
+### 4.6 Cross-Language Dependencies and Interoperability
+
+In distributed systems with multiple languages (C++ on robot, Python on laptop, Rust on safety monitor), dependencies must be **version-aligned**.
+
+**Example Scenario:**
+- Robot runs `rclcpp` nodes (C++).
+- Laptop runs `rclpy` nodes (Python).
+- Safety monitor runs `rclrs` (Rust).
+
+**Critical Alignment:**
+1. **ROS 2 Distro**: All nodes must use the same ROS 2 distro (Jazzy, Humble, etc.). Mixing distros breaks ABI compatibility.
+2. **DDS Vendor**: If using Fast DDS on the robot, use Fast DDS on the laptop. Mixing vendors (Fast DDS + Cyclone DDS) *can* work but introduces discovery and performance issues.
+3. **Message Definitions**: All nodes must have the same `.msg` file versions. Use a shared `my_robot_msgs` package as a single source of truth.
+
+**Management Strategy:**
+- **Centralize message definitions** in a dedicated package (e.g., `ezmap_interfaces`).
+- **Use Docker images with identical ROS 2 base** (`ros:jazzy-desktop-full`) for all compute nodes.
+- **Test interoperability** with integration tests that span all languages:
+  ```python
+  # test_interop.py
+  def test_cpp_to_python_to_rust():
+      # Start C++ publisher, Python relay, Rust subscriber
+      # Assert message flows correctly
+  ```
+
+---
+
+### 4.7 Dependency Management Best Practices Summary
+
+| Layer | Tool | Declaration | Best Practice |
+|-------|------|-------------|---------------|
+| **System** | `rosdep`, `apt` | `package.xml` (`<depend>`) | Always run `rosdep install`, use Docker for isolation |
+| **ROS Packages** | `vcstool`, `colcon` | `package.xml`, `.repos` | Pin versions in `.repos`, minimize custom deps |
+| **Python** | `pip`, `venv` | `setup.py`, `requirements.txt` | Prefer system packages, lock versions |
+| **C++** | CMake, `pkg-config` | `CMakeLists.txt`, `package.xml` | Avoid vendoring, use `ccache` |
+| **Rust** | Cargo | `Cargo.toml`, `Cargo.lock` | Commit `Cargo.lock`, audit with `cargo audit` |
+| **Cross-Language** | Docker, CI | Centralized message package | Align ROS distro and DDS vendor |
+
+**Golden Rule:** If a dependency is not declared in `package.xml`, `requirements.txt`, `Cargo.toml`, or `CMakeLists.txt`, it doesn't exist for reproducibility purposes. Always make dependencies explicit.
+
+
