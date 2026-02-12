@@ -110,11 +110,187 @@ src/
 
 ---
 
-## 4. Dependency Management
+## 4. Lifecycle Nodes and Debuggability
+
+### 4.1 Why Lifecycle Nodes Matter in Real Systems
+
+A standard `rclcpp::Node` starts doing work the moment it's constructor is called. In a distributed system this is dangerous:
+- A controller starts publishing `cmd_vel` before the firmware motor driver is ready.
+- A SLAM processing scans before the TF tree is published.
+- A camera driver opens the device while calibration parameters are still loading.
+
+**Lifecycle Nodes** (`rclcpp_lifecycle::LifecycleNode`) solve this by enforcing a state machine:
+
+```
+[Unconfigured] → configure() → [Inactive] → activate() → [Active]
+                                     ↑            ↓
+                                 cleanup()   deactivate()
+                                     ↓            ↑
+                              [Unconfigured]   [Inactive]
+```
+
+**When to use them:**
+- **Always** for hardware drivers (sensors, actuators, serial ports). If opening the port fails during `on_configure()`, the transition fails and the system halts cleanly instead of silently running broken.
+- **Always** for nodes that depend on other nodes being ready (e.g., navigation depends on costmap).
+- **Optional** for stateless utility nodes (e.g., a simple topic relay or a math converter).
+
+### 4.2 The `lifecycle_manager` Pattern (Nav2 Style)
+
+Nav2 pioneered the pattern of a centralized `lifecycle_manager` that transitions a list of nodes in order:
+
+```yaml
+lifecycle_manager:
+  ros__parameters:
+    autostart: true
+    node_names:
+      - "map_server"
+      - "costmap"
+      - "controller_server"
+      - "planner_server"
+```
+
+The manager calls `configure()` then `activate()` on each node **sequentially**. If `map_server` fails to configure, none of the downstream nodes are started. This is deterministic startup.
+
+**In `ezmap` context:** None of the nodes right now in `ezpkg_map_screen` use lifecycle management. 7 nodes start simultaneously and spray and pray for their cpu resources. This results in nondeterministic launch results and system behaviour. If the camera driver isn't ready when `map_web_worker` tries to subscribe to its image topic, the system drops frames with no error **for now weithout consequences**. A lifecycle manager would catch and prevent this.
+
+### 4.3 Debugging a Running ROS 2 System
+
+Debugging distributed ROS 2 systems is fundamentally different from debugging a single application. The bugs are often **emergent** — they only appear when nodes interact.
+
+#### Command-Line Introspection
+
+These are your first line of defense:
+
+```bash
+# List all active nodes
+ros2 node list
+
+# Inspect a specific node (topics, services, params)
+ros2 node info /route_executor_node
+
+# Check topic bandwidth and frequency
+ros2 topic hz /cmd_vel
+ros2 topic bw /camera/image_raw
+
+# Check if a topic is actually being published
+ros2 topic echo /odom --once
+
+# Inspect the full TF tree
+ros2 run tf2_tools view_frames
+
+# Check parameter values at runtime
+ros2 param get /my_node my_parameter
+ros2 param list /my_node
+
+# Lifecycle state inspection
+ros2 lifecycle get /my_lifecycle_node
+ros2 lifecycle list /my_lifecycle_node
+```
+
+#### `ros2 doctor`
+
+Run this first when something feels wrong:
+
+```bash
+ros2 doctor --report
+```
+
+It checks for:
+- Mismatched QoS between publishers and subscribers (the #1 silent failure)
+- Network configuration issues
+- Missing environment variables
+- DDS discovery problems
+
+#### Logging Discipline
+
+Logging is the most underrated debugging tool. Rules:
+
+- **`DEBUG`**: Verbose data dumps. Off by default. Enable per-node when hunting a specific bug.
+- **`INFO`**: Normal operation milestones ("Route loaded", "Navigation started"). Should be readable at a glance.
+- **`WARN`**: Something unexpected but recoverable ("GPS fix lost, using dead reckoning").
+- **`ERROR`**: Something broke ("Failed to open serial port /dev/ttyUSB0").
+
+**Throttled logging** for high-frequency callbacks:
+
+```cpp
+// C++ — logs at most once per second
+RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 1000,
+    "IMU data arriving late: %.2f ms", delay_ms);
+```
+
+```python
+# Python — logs at most once per second
+self.get_logger().warn("IMU data arriving late", throttle_duration_sec=1.0)
+```
+
+**Pitfall:** Putting `RCLCPP_INFO` inside a 100Hz callback produces 100 log lines per second. This floods the terminal, fills disk, and can actually slow down the node. Always throttle or use `DEBUG` level for hot-path logging.
+
+#### Diagnostics (`diagnostic_msgs`)
+
+For production systems, structured diagnostics beat log grep:
+
+```cpp
+// Publish structured health data
+diagnostic_msgs::msg::DiagnosticStatus status;
+status.name = "GPS Driver";
+status.level = diagnostic_msgs::msg::DiagnosticStatus::WARN;
+status.message = "Low satellite count";
+status.values.push_back({"satellite_count", "3"});
+status.values.push_back({"hdop", "4.2"});
+```
+
+This feeds into `rqt_robot_monitor` and `diagnostic_aggregator`, giving you a dashboard view of system health rather than grepping through log files.
+
+### 4.4 Common Debugging Scenarios and Solutions
+
+| Symptom | Likely Cause | Debug Command |
+|---------|-------------|---------------|
+| Topic published but subscriber gets nothing | QoS mismatch (RELIABLE vs BEST_EFFORT) | `ros2 doctor --report`, check QoS |
+| TF transform lookup fails | Missing broadcaster, clock skew | `ros2 run tf2_tools view_frames` |
+| Node starts but does nothing | Lifecycle node stuck in Unconfigured | `ros2 lifecycle get /node_name` |
+| Intermittent message drops on Wi-Fi | RELIABLE QoS + packet loss = head-of-line blocking | Switch to BEST_EFFORT for sensor data |
+| High CPU usage on bridge node | Serializing large messages (images) to JSON | Switch to `foxglove_bridge` (binary) |
+| Robot jerks or oscillates | Control loop too slow, or stale TF data | `ros2 topic hz /cmd_vel`, check TF timestamps |
+| Node crashes silently | Segfault in C++ callback, no lifecycle cleanup | Run under `gdb`, use AddressSanitizer |
+| System works in sim but not on hardware | `use_sim_time` still true, or wrong frame IDs | `ros2 param get /node use_sim_time` |
+
+### 4.5 Profiling and Performance Debugging
+
+When something is "slow" but you don't know what:
+
+```bash
+# Measure callback execution time — add to your node
+auto start = this->now();
+// ... callback work ...
+auto elapsed = (this->now() - start).seconds() * 1000.0;
+RCLCPP_DEBUG(this->get_logger(), "Callback took %.2f ms", elapsed);
+
+# System-level CPU profiling
+top -H -p $(pgrep -f my_node)  # Per-thread CPU usage
+
+# ROS 2 tracing (requires ros2-tracing package)
+ros2 trace start my_trace
+# ... run the system ...
+ros2 trace stop my_trace
+```
+
+**Memory debugging for C++ nodes:**
+```bash
+# Detect leaks and use-after-free
+colcon build --cmake-args -DCMAKE_BUILD_TYPE=Debug \
+  -DCMAKE_CXX_FLAGS="-fsanitize=address"
+
+# Or run under Valgrind
+valgrind --leak-check=full ros2 run my_package my_node
+```
+
+---
+
+## 5. Dependency Management
 
 Managing dependencies across distributed ROS 2 system is critical for reproducibility, deployment, and avoiding "it works on my machine" derangements syndrome. Dependencies span multiple layers: **System-level**, **ROS-level**, and **Language-specific** (Python, C++, Rust).
 
-### 4.1 System-Level Dependencies (apt/dnf/pacman)
+### 5.1 System-Level Dependencies (apt/dnf/pacman)
 
 These are OS packages installed you get via Apt or snap.
 
@@ -150,7 +326,7 @@ rosdep install --from-paths src --ignore-src -r -y
 
 ---
 
-### 4.2 ROS-Level Dependencies (Other ROS Packages)
+### 5.2 ROS-Level Dependencies (Other ROS Packages)
 
 These are other ROS 2 packages your package depends on.
 
@@ -204,7 +380,7 @@ sudo apt install ros-jazzy-nav2-msgs ros-jazzy-robot-localization
 
 ---
 
-### 4.3 Python-Specific Dependencies
+### 5.3 Python-Specific Dependencies
 
 Python nodes may depend on packages not available via `rosdep` (e.g., ML libraries, web frameworks).
 
@@ -256,7 +432,7 @@ When you `colcon build` or `pip install .`, these dependencies are installed aut
 
 ---
 
-### 4.4 C++ Dependencies (CMake/pkg-config)
+### 5.4 C++ Dependencies (CMake/pkg-config)
 
 C++ packages depend on external libraries (Eigen, OpenCV, Boost, etc.).
 
@@ -318,7 +494,7 @@ If you need a specific version or a library not in apt:
 
 ---
 
-### 4.5 Rust Dependencies (Cargo)
+### 5.5 Rust Dependencies (Cargo)
 
 Rust packages (using `rclrs`) depend on crates from crates.io.
 
@@ -357,7 +533,7 @@ colcon build --packages-select my_rust_package
 
 ---
 
-### 4.6 Cross-Language Dependencies and Interoperability
+### 5.6 Cross-Language Dependencies and Interoperability
 
 In distributed systems with multiple languages (C++ on robot, Python on laptop, Rust on safety monitor), dependencies must be **version-aligned**.
 
@@ -384,7 +560,7 @@ In distributed systems with multiple languages (C++ on robot, Python on laptop, 
 
 ---
 
-### 4.7 Dependency Management Best Practices Summary
+### 5.7 Dependency Management Best Practices Summary
 
 | Layer | Tool | Declaration | Best Practice |
 |-------|------|-------------|---------------|
